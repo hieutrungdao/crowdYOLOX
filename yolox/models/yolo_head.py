@@ -468,8 +468,8 @@ class YOLOXHead(nn.Module):
         loss_cls = torch.min(loss_cls, loss_cls1)
         loss_l1 = torch.min(loss_l1, loss_l11)
 
-        reg_weight = 1.0
-        emd_weight = 2.0
+        reg_weight = 5.0
+        emd_weight = 1.0
         loss = loss_iou + loss_obj + loss_cls + loss_l1 + emd_weight * loss_emd
 
         return (
