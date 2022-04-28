@@ -41,7 +41,7 @@ class Exp(MyExp):
         self.warmup_epochs = 1
 
         self.basic_lr_per_img = 0.001 / 64.0
-        self.output_dir = "/content/drive/MyDrive/hieudt/YOLOX_outputs"
+        self.output_dir = "/content/drive/MyDrive/hieudt/crowdYOLOX/"
 
     def get_model(self, sublinear=False):
 
