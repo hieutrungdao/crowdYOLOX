@@ -116,6 +116,7 @@ def emd_loss_softmax(p_b0, p_s0, p_b1, p_s1, targets, labels, num_classes, rcnn_
 def emd_loss_focal(p_b0, p_s0, p_b1, p_s1, targets, labels, focal_loss_alpha=0.25, focal_loss_gamma=2, smooth_l1_beta=0.1):
     pred_delta = torch.cat([p_b0, p_b1], axis=1).reshape(-1, p_b0.shape[-1])
     pred_score = torch.cat([p_s0, p_s1], axis=1).reshape(-1, p_s0.shape[-1])
+    print(pred_delta.shape)
     targets = targets.reshape(-1, 4)
     labels = labels.long().reshape(-1, 1)
     valid_mask = (labels >= 0).flatten()

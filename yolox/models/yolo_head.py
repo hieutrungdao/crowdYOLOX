@@ -4,6 +4,7 @@
 
 import math
 from loguru import logger
+from matplotlib.pyplot import axis
 
 import torch
 import torch.nn as nn
@@ -122,7 +123,7 @@ class YOLOXHead(nn.Module):
                 )
             )
 
-        self.use_l1 = True
+        self.use_l1 = False
         self.l1_loss = nn.L1Loss(reduction="none")
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.iou_loss = IOUloss(reduction="none")
@@ -400,73 +401,133 @@ class YOLOXHead(nn.Module):
             l1_targets = torch.cat(l1_targets, 0)
 
         num_fg = max(num_fg, 1)
-        loss_iou = (
-            self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
-        ).sum() / num_fg
-        loss_iou1 = (
-            self.iou_loss(bbox1_preds.view(-1, 4)[fg_masks], reg_targets)
-        ).sum() / num_fg
-        loss_obj = (
-            self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
-        ).sum() / num_fg
-        loss_obj1 = (
-            self.bcewithlog_loss(obj1_preds.view(-1, 1), obj_targets)
-        ).sum() / num_fg
-        loss_cls = (
-            self.bcewithlog_loss(
-                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
-        ).sum() / num_fg
-        loss_cls1 = (
-            self.bcewithlog_loss(
-                cls1_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
-        ).sum() / num_fg
+
+        # reg loss
+        
+        reg_targets_0 = torch.zeros_like(reg_targets, dtype=torch.float16)
+        reg_targets = torch.cat([reg_targets, reg_targets_0], axis=1)
+
+        loss_iou0 = self.iou_loss(torch.cat([bbox_preds.view(-1, 4)[fg_masks], bbox1_preds.view(-1, 4)[fg_masks]], axis=1), reg_targets).reshape(-1, 1)
+        loss_iou1 = self.iou_loss(torch.cat([bbox1_preds.view(-1, 4)[fg_masks], bbox1_preds.view(-1, 4)[fg_masks]], axis=1), reg_targets).reshape(-1, 1)
+
+        
+        loss_iou01 = torch.cat([loss_iou0, loss_iou1], axis=1)
+        _, min_indices = loss_iou01.min(axis=1)
+        loss_iou = loss_iou01[torch.arange(loss_iou01.shape[0]), min_indices].sum()/num_fg
+
+        # loss_iou = (
+        #     self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
+        # ).sum() / num_fg
+        # loss_iou1 = (
+        #     self.iou_loss(bbox1_preds.view(-1, 4)[fg_masks], reg_targets)
+        # ).sum() / num_fg
+
+        # obj loss
+        
+        obj_targets_0 = torch.zeros_like(obj_targets, dtype=torch.float16)
+        obj_targets = torch.cat([obj_targets, obj_targets_0], axis=1)
+
+        loss_obj0 = self.bcewithlog_loss(torch.cat([obj_preds.view(-1, 1), obj1_preds.view(-1, 1)], axis=1), obj_targets).reshape(-1, 1)
+        loss_obj1 = self.bcewithlog_loss(torch.cat([obj1_preds.view(-1, 1), obj_preds.view(-1, 1)], axis=1), obj_targets).reshape(-1, 1)
+
+        loss_obj01 = torch.cat([loss_obj0, loss_obj1], axis=1)
+        _, min_indices = loss_obj01.min(axis=1)
+        loss_obj = loss_obj01[torch.arange(loss_obj01.shape[0]), min_indices].sum()/num_fg
+
+
+        # loss_obj = (
+        #     self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
+        # ).sum() / num_fg
+        # loss_obj1 = (
+        #     self.bcewithlog_loss(obj1_preds.view(-1, 1), obj_targets)
+        # ).sum() / num_fg
+
+        # cls loss
+        
+        cls_targets_0 = torch.zeros_like(cls_targets, dtype=torch.float16)
+        cls_targets = torch.cat([cls_targets, cls_targets_0], axis=1)
+
+        loss_cls0 = self.bcewithlog_loss(torch.cat([cls_preds.view(-1, self.num_classes)[fg_masks], cls1_preds.view(-1, self.num_classes)[fg_masks]], axis=1), cls_targets).reshape(-1, 1)
+        loss_cls1 = self.bcewithlog_loss(torch.cat([cls1_preds.view(-1, self.num_classes)[fg_masks], cls_preds.view(-1, self.num_classes)[fg_masks]], axis=1), cls_targets).reshape(-1, 1)
+
+        loss_cls01 = torch.cat([loss_cls0, loss_cls1], axis=1)
+        _, min_indices = loss_cls01.min(axis=1)
+        loss_cls = loss_cls01[torch.arange(loss_cls01.shape[0]), min_indices].sum()/num_fg
+
+        # loss_cls = (
+        #     self.bcewithlog_loss(
+        #         cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+        #     )
+        # ).sum() / num_fg
+        # loss_cls1 = (
+        #     self.bcewithlog_loss(
+        #         cls1_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+        #     )
+        # ).sum() / num_fg
+
+
         if self.use_l1:
             origin_preds = origin_preds.view(-1, 8)
             origin1_preds = origin_preds[:,4:8]
             origin_preds = origin_preds[:,:4]
-            loss_l1 = (
-                self.l1_loss(origin_preds[fg_masks], l1_targets)
-            ).sum() / num_fg
-            loss_l11 = (
-                self.l1_loss(origin1_preds[fg_masks], l1_targets)
-            ).sum() / num_fg
+
+            # cls loss
+        
+            l1_targets_0 = torch.zeros_like(l1_targets, dtype=torch.float16)
+            l1_targets = torch.cat([l1_targets, l1_targets_0], axis=1)
+
+            loss_l1_0 = self.l1_loss(torch.cat([origin_preds[fg_masks],origin1_preds[fg_masks]], axis=1), l1_targets).reshape(-1, 1)
+            loss_l1_1 = self.l1_loss(torch.cat([origin1_preds[fg_masks], origin_preds[fg_masks]], axis=1), l1_targets).reshape(-1, 1)
+
+            loss_l1_01 = torch.cat([loss_l1_0, loss_l1_1], axis=1)
+            _, min_indices = loss_l1_01.min(axis=1)
+            loss_l1 = loss_l1_01[torch.arange(loss_l1_01.shape[0]), min_indices].sum()/num_fg
+
+            # loss_l1 = (
+            #     self.l1_loss(origin_preds[fg_masks], l1_targets)
+            # ).sum() / num_fg
+            # loss_l11 = (
+            #     self.l1_loss(origin1_preds[fg_masks], l1_targets)
+            # ).sum() / num_fg
         else:
             loss_l1 = 0.0
-            loss_l11 = 0.0
         
         # reg_weight = 5.0
         # loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
 
-        loss0 = emd_loss(
-                bbox_preds.view(-1, 4)[fg_masks], cls_preds.view(-1, self.num_classes)[fg_masks],
-                bbox1_preds.view(-1, 4)[fg_masks], cls1_preds.view(-1, self.num_classes)[fg_masks],
-                reg_targets, cls_targets)
-        loss1 = emd_loss(
-                bbox1_preds.view(-1, 4)[fg_masks], cls1_preds.view(-1, self.num_classes)[fg_masks],
-                bbox_preds.view(-1, 4)[fg_masks], cls_preds.view(-1, self.num_classes)[fg_masks],
-                reg_targets, cls_targets)
+        # loss0 = emd_loss(
+        #         bbox_preds.view(-1, 4)[fg_masks], cls_preds.view(-1, self.num_classes)[fg_masks],
+        #         bbox1_preds.view(-1, 4)[fg_masks], cls1_preds.view(-1, self.num_classes)[fg_masks],
+        #         reg_targets, cls_targets)
+        # loss1 = emd_loss(
+        #         bbox1_preds.view(-1, 4)[fg_masks], cls1_preds.view(-1, self.num_classes)[fg_masks],
+        #         bbox_preds.view(-1, 4)[fg_masks], cls_preds.view(-1, self.num_classes)[fg_masks],
+        #         reg_targets, cls_targets)
 
-        try:
-            loss01 = torch.cat([loss0, loss1], axis=1)
-            # requires_grad = False
-            _, min_indices = loss01.min(axis=1)
-            loss_emd = loss01[torch.arange(loss01.shape[0]), min_indices]
-            # only main labels
-            num_pos = (labels[:, 0] > 0).sum().item()
-            loss_normalizer = 100 # initialize with any reasonable #fg that's not too small
-            loss_normalizer_momentum = 0.9
-            loss_normalizer = loss_normalizer_momentum * loss_normalizer + (
-                1 - loss_normalizer_momentum) * max(num_pos, 1)
-            loss_emd = loss_emd.sum() / loss_normalizer
-        except:
-            loss_emd = 0.0
+        # try:
+        #     print(loss0.shape)
+        #     print(loss1.shape)
+        #     loss01 = torch.cat([loss0, loss1], axis=1)
+        #     print(loss01.shape)
+        #     # requires_grad = False
+        #     _, min_indices = loss01.min(axis=1)
+        #     loss_emd = loss01[torch.arange(loss01.shape[0]), min_indices]
+        #     # only main labels
+        #     num_pos = (labels[:, 0] > 0).sum().item()
+        #     loss_normalizer = 100 # initialize with any reasonable #fg that's not too small
+        #     loss_normalizer_momentum = 0.9
+        #     loss_normalizer = loss_normalizer_momentum * loss_normalizer + (
+        #         1 - loss_normalizer_momentum) * max(num_pos, 1)
+        #     loss_emd = loss_emd.sum() / loss_normalizer
+        # except:
+        #     loss_emd = 0.0
 
-        loss_iou = torch.min(loss_iou, loss_iou1)
-        loss_obj = torch.min(loss_obj, loss_obj1)
-        loss_cls = torch.min(loss_cls, loss_cls1)
-        loss_l1 = torch.min(loss_l1, loss_l11)
+        loss_emd = 0.0
+
+        # loss_iou = torch.min(loss_iou, loss_iou1)
+        # loss_obj = torch.min(loss_obj, loss_obj1)
+        # loss_cls = torch.min(loss_cls, loss_cls1)
+        # loss_l1 = torch.min(loss_l1, loss_l11)
 
         reg_weight = 5.0
         emd_weight = 1.0
