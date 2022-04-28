@@ -33,7 +33,7 @@ class Exp(MyExp):
         self.max_epoch = 80
         self.data_num_workers = 8
         self.eval_interval = 5
-        self.print_interval = 100
+        self.print_interval = 10
 
         self.test_conf = 0.001
         self.nmsthre = 0.65
