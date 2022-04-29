@@ -310,6 +310,7 @@ class YOLOXHead(nn.Module):
                 gt_bboxes_per_image = labels[batch_idx, :num_gt, 1:5]
                 gt_classes = labels[batch_idx, :num_gt, 0]
                 bboxes_preds_per_image = bbox_preds[batch_idx]
+                bboxes1_preds_per_image = bbox1_preds[batch_idx]
 
                 try:
                     (
@@ -325,12 +326,16 @@ class YOLOXHead(nn.Module):
                         gt_bboxes_per_image,
                         gt_classes,
                         bboxes_preds_per_image,
+                        bboxes1_preds_per_image,
                         expanded_strides,
                         x_shifts,
                         y_shifts,
                         cls_preds,
                         bbox_preds,
                         obj_preds,
+                        cls1_preds,
+                        bbox1_preds,
+                        obj1_preds,
                         labels,
                         imgs,
                     )
@@ -358,12 +363,16 @@ class YOLOXHead(nn.Module):
                         gt_bboxes_per_image,
                         gt_classes,
                         bboxes_preds_per_image,
+                        bboxes1_preds_per_image,
                         expanded_strides,
                         x_shifts,
                         y_shifts,
                         cls_preds,
                         bbox_preds,
                         obj_preds,
+                        cls1_preds,
+                        bbox1_preds,
+                        obj1_preds,
                         labels,
                         imgs,
                         "cpu",
@@ -408,7 +417,7 @@ class YOLOXHead(nn.Module):
         reg_targets = torch.cat([reg_targets, reg_targets_0], axis=1)
 
         loss_iou0 = self.iou_loss(torch.cat([bbox_preds.view(-1, 4)[fg_masks], bbox1_preds.view(-1, 4)[fg_masks]], axis=1), reg_targets).reshape(-1, 1)
-        loss_iou1 = self.iou_loss(torch.cat([bbox1_preds.view(-1, 4)[fg_masks], bbox1_preds.view(-1, 4)[fg_masks]], axis=1), reg_targets).reshape(-1, 1)
+        loss_iou1 = self.iou_loss(torch.cat([bbox1_preds.view(-1, 4)[fg_masks], bbox_preds.view(-1, 4)[fg_masks]], axis=1), reg_targets).reshape(-1, 1)
 
         
         loss_iou01 = torch.cat([loss_iou0, loss_iou1], axis=1)
@@ -567,12 +576,16 @@ class YOLOXHead(nn.Module):
         gt_bboxes_per_image,
         gt_classes,
         bboxes_preds_per_image,
+        bboxes1_preds_per_image,
         expanded_strides,
         x_shifts,
         y_shifts,
         cls_preds,
         bbox_preds,
         obj_preds,
+        cls1_preds,
+        bbox1_preds,
+        obj1_preds,
         labels,
         imgs,
         mode="gpu",
@@ -582,6 +595,7 @@ class YOLOXHead(nn.Module):
             print("------------CPU Mode for This Batch-------------")
             gt_bboxes_per_image = gt_bboxes_per_image.cpu().float()
             bboxes_preds_per_image = bboxes_preds_per_image.cpu().float()
+            bboxes1_preds_per_image = bboxes1_preds_per_image.cpu().float()
             gt_classes = gt_classes.cpu().float()
             expanded_strides = expanded_strides.cpu().float()
             x_shifts = x_shifts.cpu()
@@ -597,16 +611,21 @@ class YOLOXHead(nn.Module):
         )
 
         bboxes_preds_per_image = bboxes_preds_per_image[fg_mask]
+        # bboxes1_preds_per_image = bboxes1_preds_per_image[fg_mask]
         cls_preds_ = cls_preds[batch_idx][fg_mask]
+        # cls1_preds_ = cls1_preds[batch_idx][fg_mask]
         obj_preds_ = obj_preds[batch_idx][fg_mask]
+        # obj1_preds_ = obj1_preds[batch_idx][fg_mask]
         num_in_boxes_anchor = bboxes_preds_per_image.shape[0]
+        # num_in_boxes_anchor1 = bboxes1_preds_per_image.shape[0]
 
         if mode == "cpu":
             gt_bboxes_per_image = gt_bboxes_per_image.cpu()
             bboxes_preds_per_image = bboxes_preds_per_image.cpu()
 
-        # gt_bboxes_per_image = torch.cat([gt_bboxes_per_image, gt_bboxes_per_image], 1)
+
         pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False)
+        # pair_wise_ious1 = bboxes_iou(gt_bboxes_per_image, bboxes1_preds_per_image, False)
 
         gt_cls_per_image = (
             F.one_hot(gt_classes.to(torch.int64), self.num_classes)
@@ -614,7 +633,14 @@ class YOLOXHead(nn.Module):
             .unsqueeze(1)
             .repeat(1, num_in_boxes_anchor, 1)
         )
+        # gt_cls_per_image1 = (
+        #     F.one_hot(gt_classes.to(torch.int64), self.num_classes)
+        #     .float()
+        #     .unsqueeze(1)
+        #     .repeat(1, num_in_boxes_anchor1, 1)
+        # )
         pair_wise_ious_loss = -torch.log(pair_wise_ious + 1e-8)
+        # pair_wise_ious_loss1 = -torch.log(pair_wise_ious1 + 1e-8)
 
         if mode == "cpu":
             cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
@@ -627,13 +653,27 @@ class YOLOXHead(nn.Module):
             pair_wise_cls_loss = F.binary_cross_entropy(
                 cls_preds_.sqrt_(), gt_cls_per_image, reduction="none"
             ).sum(-1)
+            # cls1_preds_ = (
+            #     cls1_preds_.float().unsqueeze(0).repeat(num_gt, 1, 1).sigmoid_()
+            #     * obj1_preds_.float().unsqueeze(0).repeat(num_gt, 1, 1).sigmoid_()
+            # )
+            # pair_wise_cls_loss1 = F.binary_cross_entropy(
+            #     cls1_preds_.sqrt_(), gt_cls_per_image1, reduction="none"
+            # ).sum(-1)
         del cls_preds_
+
+        # cost = (
+        #     pair_wise_cls_loss + pair_wise_cls_loss1
+        #     + 3.0 * (pair_wise_ious_loss + pair_wise_ious_loss1)
+        #     + 100000.0 * (~is_in_boxes_and_center)
+        # )
 
         cost = (
             pair_wise_cls_loss
             + 3.0 * pair_wise_ious_loss
             + 100000.0 * (~is_in_boxes_and_center)
         )
+        
 
         (
             num_fg,
